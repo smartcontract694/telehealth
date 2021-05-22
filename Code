@@ -1,0 +1,503 @@
+//This contract is for registering 
+
+pragma solidity ^0.8.0;
+ 
+contract Registration{
+   
+    address owner;
+    mapping(address=>bool) RegisteredPatients;
+     mapping(address=>bool) RegisteredDoctors;
+      mapping(address=>bool) RegisteredNurses;
+       mapping(address=>bool) RegisteredCouriers;
+   
+    constructor() public{
+       owner= msg.sender;
+    }
+   
+    modifier onlyOwner{
+      require(msg.sender == owner);
+      _;
+    }
+   
+   //Patients
+    function RegisterPatient(address a) onlyOwner public{
+        RegisteredPatients[a]=true;
+    }
+   
+    function RevokePatient(address a) onlyOwner public{
+        RegisteredPatients[a]=false;
+    }
+   
+    function RegisteredPatient(address a) public {
+        require(RegisteredPatients[a]);
+       
+    }
+    //Doctors
+      function RegisterDoctor(address a) onlyOwner public{
+        RegisteredDoctors[a]=true;
+    }
+   
+    function RevokeDoctor(address a) onlyOwner public{
+        RegisteredDoctors[a]=false;
+    }
+   
+    function RegisteredDoctor(address a) public {
+        require(RegisteredDoctors[a]);
+    }
+     //Nurses
+      function RegisterNurse(address a) onlyOwner public{
+        RegisteredNurses[a]=true;
+    }
+   
+    function RevokeNurse(address a) onlyOwner public{
+        RegisteredNurses[a]=false;
+    }
+   
+    function RegisteredNurse(address a) public {
+        require(RegisteredNurses[a]);    
+       
+    }
+    //Courier
+  
+      function RegisterCourier(address a) onlyOwner public{
+        RegisteredCouriers[a]=true;
+    }
+   
+    function RevokeCourier(address a) onlyOwner public{
+        RegisteredCouriers[a]=false;
+    }
+   
+    function RegisteredCourier() public {
+        require(RegisteredCouriers[msg.sender]);    
+       
+    }
+    
+    
+}
+
+////////////////////////////
+////DrugAdministration SC/////
+////////////////////////////
+
+pragma solidity ^0.8.0;
+ 
+contract DrugAdministration is Registration{
+    //One patient can only be handled at a time with one doctor and one nurse
+    address nurse = 0x14723A09ACff6D2A60DcdF7aA4AFf308FDDC160C;
+    address doctor = 0x4B0897b0513fdC7C541B6d9D7E929C4e5364D2dB;
+    address courier = 0x583031D1113aD414F02576BD6afaBfb302140225;
+    address current_patient;
+    patient_state state;
+
+    constructor() public{
+       owner= msg.sender;
+       //register nurse and doctor
+        RegisterNurse(nurse);
+        RegisterDoctor(doctor);
+         RegisterCourier(courier);
+        state = patient_state.waitingForNewApp;
+    }
+    
+    enum patient_state {waitingForNewApp, appConfirmedbyNurse,appConfirmedbyPatient,NurseArrived, KitArrived,NurseArrivalConfirmation, KitArrivalConfirmation,
+    CallInitaitedbyDoctor, CallJoinedbyPatient, VitalsMeasurementRequest
+    ,VitalsMeasured,AuthorizedToTakeMeds, NotAuthorizedToTakeMeds,MedsAdministered}
+    
+    modifier OnlyNurse(){
+    require(msg.sender == nurse);
+    _;
+    } 
+    
+    modifier OnlyDoctor(){
+    require(msg.sender == doctor);
+    _;
+    }
+    
+    modifier OnlyPatient(){
+    require(msg.sender == current_patient);
+    _;
+    } 
+
+     modifier OnlyCourier(){
+        require(msg.sender == courier);
+        _;
+    }
+    
+     modifier OnlyCourierOrNurse{
+        require(msg.sender == courier || msg.sender == nurse);
+        _;
+    }
+    
+      modifier OnlyNurseOrPatient{
+        require(msg.sender == nurse || msg.sender == current_patient);
+        _;
+    }
+    // Events
+    event RequestAppointmentConfirmation (address patient, uint time,uint appType);
+    event AppointmentConfirmedbyPatient(address patient,uint appType);
+    event MedicalAssistanceReachedPatient(address patient);
+    event MedicalAssistanceReachedConfirmation();
+    event MedicalKitArrivedConfirmation();
+    event CallStarted();
+    event CallInProgress();
+    event VitalsMeasurementRequestByDoctor();
+    event VitalsSentandCallInProgress();
+    event ProceedWithMeds();
+    event CannotProceedWithMeds();
+    event DoneAdministeringMeds();
+    event DrugAdministrationCallCompleted(bytes32 hash);
+    
+    function AppointmentConfirm(address patient, uint time,uint appType) public OnlyNurse {
+        require(state == patient_state.waitingForNewApp);    
+        RegisteredPatient(patient);
+        current_patient = patient;
+        emit RequestAppointmentConfirmation(patient, time, appType);
+        state = patient_state.appConfirmedbyNurse;
+    }
+    
+    function ConfirmAppoinment(uint time,uint appType) public OnlyPatient{
+        require(state == patient_state.appConfirmedbyNurse);
+        emit AppointmentConfirmedbyPatient(msg.sender, appType);
+        state = patient_state.appConfirmedbyPatient;
+    }
+    
+    
+    function ArrivedAtDestination(uint time,uint appType) public OnlyCourierOrNurse{
+        require(state == patient_state.appConfirmedbyPatient);
+        emit MedicalAssistanceReachedPatient(current_patient);
+        if(appType == 1)
+        state = patient_state.NurseArrived; 
+        else if(appType == 2)
+        state = patient_state.KitArrived;
+        
+    }
+    
+    function ConfirmArrival() public OnlyPatient{
+        require(state == patient_state.NurseArrived);
+        emit MedicalAssistanceReachedConfirmation();
+        state = patient_state.NurseArrivalConfirmation;
+    }
+    
+    
+    function ConfirmMedicalKitArrival() public OnlyPatient{//only for type 2 patients (with courier)
+        require(state == patient_state.KitArrived);
+        emit MedicalKitArrivedConfirmation();
+        state = patient_state.KitArrivalConfirmation;
+        
+    }
+    function CallInitiated(uint time) public OnlyDoctor{
+        require(state == patient_state.NurseArrivalConfirmation);
+        emit CallStarted();
+        state = patient_state.CallInitaitedbyDoctor;
+    }
+    
+     function CallJoined(uint time) public OnlyPatient{
+        require(state == patient_state.CallInitaitedbyDoctor);
+        emit CallInProgress();
+        state = patient_state.CallJoinedbyPatient;
+    }
+    
+    function MeasureVitals() public OnlyDoctor{//only for type 2 patients (with courier)
+        require(state == patient_state.CallJoinedbyPatient);
+        emit VitalsMeasurementRequestByDoctor();
+        state = patient_state.VitalsMeasurementRequest;
+    }
+    
+    function VitalsMeasured(uint BpHR, uint TOx) public {
+        if((msg.sender == nurse && state == patient_state.CallJoinedbyPatient) || 
+        (msg.sender == current_patient && state == patient_state.VitalsMeasurementRequest)){
+            emit VitalsSentandCallInProgress();
+            state = patient_state.VitalsMeasured;
+        }
+    }
+    
+    function AdministerCovid19Meds(bool result)public OnlyDoctor{
+        require(state == patient_state.VitalsMeasured);
+        if(result)
+        {
+            emit ProceedWithMeds();
+            state = patient_state.AuthorizedToTakeMeds;
+        }
+        else 
+        {
+            emit CannotProceedWithMeds();
+            state = patient_state.NotAuthorizedToTakeMeds;
+        }
+    }
+
+    function Covid19MedicationAdministered() public OnlyNurseOrPatient{
+        require(state == patient_state.AuthorizedToTakeMeds);
+        emit DoneAdministeringMeds();
+        state = patient_state.MedsAdministered;
+    }
+    
+    //hash of the call video when uploaded to IPFS by the doctor
+    function CallEnded(bytes32 callhash) public OnlyDoctor{
+        require(state == patient_state.MedsAdministered || state == patient_state.NotAuthorizedToTakeMeds);
+        emit DrugAdministrationCallCompleted(callhash);
+        state = patient_state.waitingForNewApp;
+    }
+    
+    
+}
+
+
+////////////////////////////
+////Teleconsultation SC/////
+////////////////////////////
+
+pragma solidity ^0.8.0;
+ 
+contract Teleconsultation is Registration{
+    //One patient can only be handled at a time with one doctor and one nurse
+     address public nurse  = 0x14723A09ACff6D2A60DcdF7aA4AFf308FDDC160C;
+     address public doctor = 0x4B0897b0513fdC7C541B6d9D7E929C4e5364D2dB;
+     address public current_patient;
+     patient_state public state;
+    
+    constructor() public{
+       owner= msg.sender;
+       //register nurse and doctor
+        RegisterNurse(nurse);
+        RegisterDoctor(doctor);
+        state = patient_state.waitingForNewApp;
+    }
+    
+    enum patient_state {waitingForNewApp, appConfirmedbyNurse,appConfirmedbyPatient,CallInitaitedbyDoctor
+    ,CallJoinedbyPatient}
+    
+    modifier OnlyNurse(){
+    require(msg.sender == nurse);
+    _;
+    } 
+    
+    modifier OnlyDoctor(){
+    require(msg.sender == doctor);
+    _;
+    }
+    
+    modifier OnlyPatient(){
+    require(msg.sender == current_patient);
+    _;
+    } 
+
+    
+    // Events
+    event RequestAppointmentConfirmation (address patient, uint time);
+    event AppointmentConfirmedbyPatient(address patient);
+    event CallStarted();
+    event CallInProgress();
+    event TeleconsultationCallisDone(bytes32 hash);
+    
+    function AppointmentConfirm(address patient, uint time) public OnlyNurse {
+        require(state == patient_state.waitingForNewApp);    
+        RegisteredPatient(patient);
+        current_patient = patient;
+        emit RequestAppointmentConfirmation(patient, time);
+        state = patient_state.appConfirmedbyNurse;
+    }
+    
+    function ConfirmAppoinment(uint time) public OnlyPatient{
+        require(state == patient_state.appConfirmedbyNurse);
+        emit AppointmentConfirmedbyPatient(msg.sender);
+        state = patient_state.appConfirmedbyPatient;
+    }
+    
+    function CallInitiated(uint time) public OnlyDoctor{
+        require(state == patient_state.appConfirmedbyPatient);
+        emit CallStarted();
+        state = patient_state.CallInitaitedbyDoctor;
+    }
+    
+    function CallJoined(uint time) public OnlyPatient{
+        require(state == patient_state.CallInitaitedbyDoctor);
+        emit CallInProgress();
+        state = patient_state.CallJoinedbyPatient;
+    }
+    
+      //for testing the hash 
+  //0xe0f89ca8eae95281590977802df657506a151304234d15570c12cc26263a8b7a
+    function CallEnded(bytes32 hash) public OnlyDoctor{
+        require(state == patient_state.CallJoinedbyPatient);
+        emit TeleconsultationCallisDone(hash);
+        state = patient_state.waitingForNewApp;
+    }
+    
+    
+}
+
+
+////////////////////////////
+////MedicalTesting SC/////
+////////////////////////////
+
+pragma solidity ^0.8.0;
+ 
+contract MedicalTesting is Registration{
+    //One patient can only be handled at a time with one doctor and one nurse
+    address nurse = 0x14723A09ACff6D2A60DcdF7aA4AFf308FDDC160C;
+    address doctor = 0x4B0897b0513fdC7C541B6d9D7E929C4e5364D2dB;
+    address courier = 0x583031D1113aD414F02576BD6afaBfb302140225;
+    address current_patient;
+    patient_state state;
+   
+    constructor() public{
+       owner= msg.sender;
+       //register nurse and doctor
+        RegisterNurse(nurse);
+        RegisterDoctor(doctor);
+        RegisterCourier(courier);
+        state = patient_state.waitingForNewApp;
+    }
+    
+    enum patient_state {waitingForNewApp, appConfirmedbyNurse,appConfirmedbyPatient,NurseArrived,KitArrived, NurseArrivalConfirmation,KitArrivalConfirmation,
+    CallInitaitedbyDoctor,CallJoinedbyPatient,VitalsMeasurementRequest,
+    VitalsMeasured,AuthorizedToTakeTest, NotAuthorizedToTakeTest,TestCompleted,MedicalKitOnTheWayToDoctor}
+    
+    modifier OnlyNurse(){
+    require(msg.sender == nurse);
+    _;
+    } 
+    
+    modifier OnlyDoctor(){
+    require(msg.sender == doctor);
+    _;
+    }
+    
+    modifier OnlyPatient(){
+    require(msg.sender == current_patient);
+    _;
+    } 
+
+    modifier OnlyCourier(){
+        require(msg.sender == courier);
+        _;
+    }
+    
+    modifier OnlyCourierOrNurse{
+        require(msg.sender == courier || msg.sender == nurse);
+        _;
+    }
+    
+    modifier OnlyNurseOrPatient{
+        require(msg.sender == nurse || msg.sender == current_patient);
+        _;
+    }
+    
+    // Events
+    event RequestAppointmentConfirmation (address patient, uint time, uint appType);
+    event AppointmentConfirmedbyPatient(address patient, uint appType);
+    event MedicalAssistanceReachedPatient(address patient);
+    event MedicalAssistanceReachedConfirmation();
+    event MedicalKitArrivedConfirmation();
+    event CallStarted();
+    event CallInProgress();
+    event VitalsMeasurementRequestByDoctor();
+    event VitalsSentandCallInProgress();
+    event DcotorAuthorizesTest();
+    event CannotProceedWithTest();
+    event DonePerformingMedicalTest();
+    event MedicalKitOnTheWayToDoctor(bytes32 photohash);
+    event Covid19TestCompleted(bytes32 hash);
+    
+    function AppointmentConfirm(address patient, uint time,uint appType) public OnlyNurse {//appType 1 with nurse, 2 with nurse and courier
+        require(state == patient_state.waitingForNewApp);    
+        RegisteredPatient(patient);
+        current_patient = patient;
+        emit RequestAppointmentConfirmation(patient, time,appType);
+        state = patient_state.appConfirmedbyNurse;
+    }
+    
+    function ConfirmAppoinment(uint time,uint appType) public OnlyPatient{
+        require(state == patient_state.appConfirmedbyNurse);
+        emit AppointmentConfirmedbyPatient(msg.sender,appType);
+        state = patient_state.appConfirmedbyPatient;
+    }
+    
+    function ArrivedAtDestination(uint time,uint appType) public OnlyCourierOrNurse{
+        require(state == patient_state.appConfirmedbyPatient);
+        emit MedicalAssistanceReachedPatient(current_patient);
+        if(appType == 1)
+        state = patient_state.NurseArrived; 
+        else if(appType == 2)
+        state = patient_state.KitArrived;
+        
+    }
+    
+    function ConfirmArrival() public OnlyPatient{
+        require(state == patient_state.NurseArrived);
+        emit MedicalAssistanceReachedConfirmation();
+        state = patient_state.NurseArrivalConfirmation;
+    }
+    
+    function ConfirmMedicalKitArrival() public OnlyPatient{//only for type 2 patients (with courier)
+        require(state == patient_state.KitArrived);
+        emit MedicalKitArrivedConfirmation();
+        state = patient_state.KitArrivalConfirmation;
+        
+    }
+    
+    function CallInitiated(uint time) public OnlyDoctor{
+        require(state == patient_state.NurseArrivalConfirmation || state == patient_state.KitArrivalConfirmation);
+        emit CallStarted();
+        state = patient_state.CallInitaitedbyDoctor;
+    }
+    
+    
+     function CallJoined(uint time) public OnlyPatient{
+        require(state == patient_state.CallInitaitedbyDoctor);
+        emit CallInProgress();
+        state = patient_state.CallJoinedbyPatient;
+    }
+    
+    function MeasureVitals() public OnlyDoctor{//only for type 2 patients (with courier)
+        require(state == patient_state.CallJoinedbyPatient);
+        emit VitalsMeasurementRequestByDoctor();
+        state = patient_state.VitalsMeasurementRequest;
+    }
+    
+    function VitalsMeasured(uint BpHR, uint TOx) public {
+        if((msg.sender == nurse && state == patient_state.CallJoinedbyPatient) || 
+        (msg.sender == current_patient && state == patient_state.VitalsMeasurementRequest)){
+            emit VitalsSentandCallInProgress();
+            state = patient_state.VitalsMeasured;
+        }
+    }
+    
+    function StartTest(bool result)public OnlyDoctor{
+        require(state == patient_state.VitalsMeasured);
+        if(result)
+        {
+            emit DcotorAuthorizesTest();
+            state = patient_state.AuthorizedToTakeTest;
+        }
+        else 
+        {
+            emit CannotProceedWithTest();
+            state = patient_state.NotAuthorizedToTakeTest;
+        }
+    }
+
+    function TestCompleted() public OnlyNurseOrPatient{
+        require(state == patient_state.AuthorizedToTakeTest);
+        emit DonePerformingMedicalTest();
+        state = patient_state.TestCompleted;
+    }
+    
+    //0x3fd54831f488a22b28398de0c567a3b064b937f54f81739ae9bd545967f3abab
+    //hash of the photo taken by the courier
+    function PickMedicalKit (bytes32 photohash,uint time, address patient) public OnlyCourier{
+        require(state == patient_state.TestCompleted);
+        emit MedicalKitOnTheWayToDoctor(photohash);
+        state = patient_state.MedicalKitOnTheWayToDoctor;
+    }
+    
+    //hash of the video uploaded on IPFS by the doctor
+    //0xe0f89ca8eae95281590977802df657506a151304234d15570c12cc26263a8b7a
+    function CallEnded(bytes32 callhash) public OnlyDoctor{
+        require(state == patient_state.TestCompleted || state == patient_state.NotAuthorizedToTakeTest || state == patient_state.MedicalKitOnTheWayToDoctor);
+        emit Covid19TestCompleted(callhash);
+        state = patient_state.waitingForNewApp;
+    }
+    
+    
+}
